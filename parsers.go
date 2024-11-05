@@ -58,7 +58,7 @@ func ParseVorbisCommentFromMetaDataBlock(meta MetaDataBlock) (*VorbisCommentBloc
 	}
 
 	reader := bytes.NewReader(meta.Data)
-	res := new(VorbisCommentBlock)
+	res := NewVorbisCommentBlock()
 
 	vendorlen, err := readUint32L(reader)
 	if err != nil {

@@ -84,7 +84,7 @@ func readFLACStream(f io.ReadSeeker) ([]byte, error) {
 
 func checkFLACStream(f io.ReadSeeker) error {
 	res := make([]byte, 2)
-	_, err := f.Read(res)
+	_, err := io.ReadFull(f, res)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func checkFLACStream(f io.ReadSeeker) error {
 		return ErrorNoSyncCode
 	}
 	_, err = f.Seek(-2, io.SeekCurrent)
-	return nil
+	return err
 }
 
 func parseMetadataBlock(f io.ReadSeeker) (block *MetaDataBlock, isfinal bool, err error) {

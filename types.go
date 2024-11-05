@@ -123,28 +123,6 @@ type FLACFile struct {
 
 type FrameData []byte
 
-// StreamInfoBlock represents the undecoded data of StreamInfo block
-type StreamInfoBlock struct {
-	// BlockSizeMin The minimum block size (in samples) used in the stream.
-	BlockSizeMin int
-	// BlockSizeMax The maximum block size (in samples) used in the stream. (Minimum blocksize == maximum blocksize) implies a fixed-blocksize stream.
-	BlockSizeMax int
-	// FrameSizeMin The minimum frame size (in bytes) used in the stream. May be 0 to imply the value is not known.
-	FrameSizeMin int
-	// FrameSizeMax The maximum frame size (in bytes) used in the stream. May be 0 to imply the value is not known.
-	FrameSizeMax int
-	// SampleRate Sample rate in Hz
-	SampleRate int
-	// ChannelCount Number of channels
-	ChannelCount int
-	// BitDepth  Bits per sample
-	BitDepth int
-	// SampleCount Total samples in stream.  'Samples' means inter-channel sample, i.e. one second of 44.1Khz audio will have 44100 samples regardless of the number of channels. A value of zero here means the number of total samples is unknown.
-	SampleCount int64
-	// AudioMD5 MD5 signature of the unencoded audio data
-	AudioMD5 []byte
-}
-
 type PictureType uint32
 
 const (

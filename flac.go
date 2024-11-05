@@ -54,6 +54,10 @@ func (f *FLACTag) GetBPM() int {
 	return f.BPM
 }
 
+func (f *FLACTag) GetContact() string {
+	return f.Contact
+}
+
 func (f *FLACTag) GetComposer() string {
 	return f.Composer
 }
@@ -64,6 +68,14 @@ func (f *FLACTag) GetCopyright() string {
 
 func (f *FLACTag) GetCoverArt() *image.Image {
 	return f.CoverArt
+}
+
+func (f *FLACTag) GetDate() string {
+	return f.Date
+}
+
+func (f *FLACTag) GetDescription() string {
+	return f.Description
 }
 
 func (f *FLACTag) GetDiscNumber() int {
@@ -82,6 +94,26 @@ func (f *FLACTag) GetGenre() string {
 	return f.Genre
 }
 
+func (f *FLACTag) GetISRC() string {
+	return f.ISRC
+}
+
+func (f *FLACTag) GetLicense() string {
+	return f.License
+}
+
+func (f *FLACTag) GetLocation() string {
+	return f.Location
+}
+
+func (f *FLACTag) GetOrganization() string {
+	return f.Organization
+}
+
+func (f *FLACTag) GetPerformer() string {
+	return f.Performer
+}
+
 func (f *FLACTag) GetTitle() string {
 	return f.Title
 }
@@ -92,6 +124,10 @@ func (f *FLACTag) GetTrackNumber() int {
 
 func (f *FLACTag) GetTrackTotal() int {
 	return f.TrackTotal
+}
+
+func (f *FLACTag) GetVersion() string {
+	return f.Version
 }
 
 func (f *FLACTag) SetAlbum(album string) {
@@ -110,6 +146,10 @@ func (f *FLACTag) SetBPM(bpm int) {
 	f.BPM = bpm
 }
 
+func (f *FLACTag) SetContact(contact string) {
+	f.Contact = contact
+}
+
 func (f *FLACTag) SetComposer(composer string) {
 	f.Composer = composer
 }
@@ -120,6 +160,14 @@ func (f *FLACTag) SetCopyright(copyright string) {
 
 func (f *FLACTag) SetCoverArt(coverArt *image.Image) {
 	f.CoverArt = coverArt
+}
+
+func (f *FLACTag) SetDate(date string) {
+	f.Date = date
+}
+
+func (f *FLACTag) SetDescription(description string) {
+	f.Description = description
 }
 
 func (f *FLACTag) SetDiscNumber(discNumber int) {
@@ -138,6 +186,26 @@ func (f *FLACTag) SetGenre(genre string) {
 	f.Genre = genre
 }
 
+func (f *FLACTag) SetISRC(isrc string) {
+	f.ISRC = isrc
+}
+
+func (f *FLACTag) SetLicense(license string) {
+	f.License = license
+}
+
+func (f *FLACTag) SetLocation(location string) {
+	f.Location = location
+}
+
+func (f *FLACTag) SetOrganization(organization string) {
+	f.Organization = organization
+}
+
+func (f *FLACTag) SetPerformer(performer string) {
+	f.Performer = performer
+}
+
 func (f *FLACTag) SetTitle(title string) {
 	f.Title = title
 }
@@ -148,6 +216,10 @@ func (f *FLACTag) SetTrackNumber(trackNumber int) {
 
 func (f *FLACTag) SetTrackTotal(trackTotal int) {
 	f.TrackTotal = trackTotal
+}
+
+func (f *FLACTag) SetVersion(version string) {
+	f.Version = version
 }
 
 func ReadFLAC(r io.ReadSeeker) (*FLACTag, error) {
@@ -174,15 +246,23 @@ func ReadFLAC(r io.ReadSeeker) (*FLACTag, error) {
 		}
 		for k, v := range vorbisComment.Comments {
 			fieldName := strings.ToUpper(k)
+			fieldName, ok := tagFieldMapping[fieldName]
+			if !ok {
+				continue
+			}
 			switch fieldName {
-			case FIELD_BPM, FIELD_DISCNUMBER, FIELD_DISCTOTAL, FIELD_TRACKNUMBER, FIELD_TRACKTOTAL:
+			case structFieldBPM, structFieldDiscNumber, structFieldDiscTotal, structFieldTrackNumber, structFieldTrackTotal:
 				val, err := strconv.Atoi(v)
 				if err != nil {
 					continue
 				}
-				reflect.ValueOf(tag).Elem().FieldByName(tagFieldMapping[strings.ToUpper(k)]).SetInt(int64(val))
+				if val != 0 {
+					reflect.ValueOf(tag).Elem().FieldByName(fieldName).SetInt(int64(val))
+				}
 			default:
-				reflect.ValueOf(tag).Elem().FieldByName(tagFieldMapping[strings.ToUpper(k)]).SetString(v)
+				if v != "" {
+					reflect.ValueOf(tag).Elem().FieldByName(fieldName).SetString(v)
+				}
 			}
 
 		}
@@ -204,7 +284,7 @@ func ReadFLAC(r io.ReadSeeker) (*FLACTag, error) {
 
 func (f *FLACTag) Save(w io.Writer) error {
 	blocks := make([]*MetaDataBlock, 0)
-	comment := new(VorbisCommentBlock)
+	comment := NewVorbisCommentBlock()
 	for k, v := range tagFieldMapping {
 		field := reflect.ValueOf(f).Elem().FieldByName(v)
 		if field.Kind() == reflect.Int {
