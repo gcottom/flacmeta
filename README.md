@@ -10,11 +10,11 @@ This project is licensed under the MIT License. See the LICENSE file for details
 Parts of this project are licensed under the Apache 2.0 License. See the LICENSE file for details. 
 
 ## Related Links
-[AudioMeta v3](github.com/gcottom/audiometa/v3)
+[audiometa v3](https://github.com/gcottom/audiometa/v3)
 
-[MP3Meta](github.com/gcottom/mp3meta)
+[mp3meta](https://github.com/gcottom/mp3meta)
 
-[MP4Meta](github.com/gcottom/mp4meta)
+[mp4meta](https://github.com/gcottom/mp4meta)
 
-[OGGMeta](github.com/gcottom/oggmeta)
+[oggmeta](https://github.com/gcottom/oggmeta)
 
