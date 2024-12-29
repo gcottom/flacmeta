@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/aler9/writerseeker"
 )
 
 type FLACTag struct {
@@ -339,10 +341,17 @@ func (f *FLACTag) Save(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if _, err = w.Write(out); err != nil {
+	temp := new(writerseeker.WriterSeeker)
+	if _, err = temp.Write(out); err != nil {
 		return err
 	}
-	if _, err = io.Copy(w, f.flacFile.StreamReader); err != nil {
+	if _, err = io.Copy(temp, f.flacFile.StreamReader); err != nil {
+		return err
+	}
+	if _, err = temp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err = io.Copy(w, temp.BytesReader()); err != nil {
 		return err
 	}
 	return nil

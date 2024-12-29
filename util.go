@@ -35,16 +35,6 @@ func readUint32L(r io.Reader) (res uint32, err error) {
 	return
 }
 
-func readUint8(r io.Reader) (res uint8, err error) {
-	err = binary.Read(r, binary.BigEndian, &res)
-	return
-}
-
-func readUint16(r io.Reader) (res uint16, err error) {
-	err = binary.Read(r, binary.BigEndian, &res)
-	return
-}
-
 func readUint32(r io.Reader) (res uint32, err error) {
 	err = binary.Read(r, binary.BigEndian, &res)
 	return
