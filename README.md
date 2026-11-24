@@ -80,3 +80,28 @@ covering portions of the project.
 [MP3Meta](https://github.com/gcottom/mp3meta) ·
 [MP4Meta](https://github.com/gcottom/mp4meta) ·
 [OggMeta](https://github.com/gcottom/oggmeta)
+
+## Canonical metadata editor
+
+Use `OpenMetadata` for the shared multi-format field set. It reads ordered
+comments, keeps native artwork as encoded bytes, and leaves compressed frames
+untouched. Unknown comments, padding, application blocks, cue sheets, seek
+tables and reserved metadata blocks remain in their original representation.
+`ClearAll(false)` can remove opaque comments and malformed artwork. Application
+and reserved blocks are kept because their playback role is unknown.
+
+```go
+tag, err := flacmeta.OpenMetadata(in)
+if err != nil {
+    return err
+}
+if err := tag.SetField(core.Mood, core.TextValue("Energetic")); err != nil {
+    return err
+}
+return tag.Save(out)
+```
+
+Import `github.com/gcottom/audiometa-core` as `core` for the field and value types.
+Native PICTURE and comment blocks must fit FLAC's 24-bit length. Duplicate
+comment blocks and malformed metadata lengths are rejected. Source and
+destination must be distinct files. The source remains caller-owned.

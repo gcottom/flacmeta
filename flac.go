@@ -362,21 +362,6 @@ func (f *FLACTag) Save(w io.Writer) error {
 		return errors.New("flacmeta: nil destination")
 	}
 	source := f.flacFile.StreamReader
-	if src, ok := source.(*os.File); ok {
-		if dst, ok := w.(*os.File); ok {
-			a, err := src.Stat()
-			if err != nil {
-				return err
-			}
-			b, err := dst.Stat()
-			if err != nil {
-				return err
-			}
-			if os.SameFile(a, b) {
-				return errors.New("flacmeta: source and destination are the same file")
-			}
-		}
-	}
 	changesArt := f.coverArtEdited || f.CoverArt != f.initialCoverArt
 	var replacement *MetaDataBlock
 	if changesArt && f.CoverArt != nil {
@@ -422,7 +407,26 @@ func (f *FLACTag) Save(w io.Writer) error {
 	if replacement != nil {
 		blocks = append(blocks, replacement)
 	}
-	if _, err := source.Seek(f.firstFrame, io.SeekStart); err != nil {
+	return saveFrames(source, w, f.firstFrame, blocks)
+}
+
+func saveFrames(source io.ReadSeeker, w io.Writer, firstFrame int64, blocks []*MetaDataBlock) error {
+	if src, ok := source.(*os.File); ok {
+		if dst, ok := w.(*os.File); ok {
+			a, err := src.Stat()
+			if err != nil {
+				return err
+			}
+			b, err := dst.Stat()
+			if err != nil {
+				return err
+			}
+			if os.SameFile(a, b) {
+				return errors.New("flacmeta: source and destination are the same file")
+			}
+		}
+	}
+	if _, err := source.Seek(firstFrame, io.SeekStart); err != nil {
 		return fmt.Errorf("flacmeta: seek to frames: %w", err)
 	}
 	if err := checkFLACStream(source); err != nil {
