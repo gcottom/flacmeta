@@ -14,22 +14,6 @@ func encodeUint32(n uint32) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func encodeComment(comment string) ([]byte, error) {
-	out, err := encodeUint32L(uint32(len(comment)))
-	if err != nil {
-		return nil, err
-	}
-	return append(out, []byte(comment)...), nil
-}
-
-func encodeUint32L(n uint32) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	if err := binary.Write(buf, binary.LittleEndian, n); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
 func readUint32L(r io.Reader) (res uint32, err error) {
 	err = binary.Read(r, binary.LittleEndian, &res)
 	return
@@ -40,25 +24,15 @@ func readUint32(r io.Reader) (res uint32, err error) {
 	return
 }
 
-func readBytesWith32bitSize(r io.Reader) (res []byte, err error) {
-	var size uint32
-	size, err = readUint32(r)
+func readBytesWith32bitSize(r *bytes.Buffer) ([]byte, error) {
+	size, err := readUint32(r)
 	if err != nil {
-		return
+		return nil, err
 	}
-	bufall := new(bytes.Buffer)
-	for size > 0 {
-		var nn int
-		buf := make([]byte, size)
-		nn, err = r.Read(buf)
-		if err != nil {
-			return
-		}
-		bufall.Write(buf)
-		size -= uint32(nn)
+	if uint64(size) > uint64(r.Len()) {
+		return nil, io.ErrUnexpectedEOF
 	}
-	res = bufall.Bytes()
-	return
+	return append([]byte(nil), r.Next(int(size))...), nil
 }
 
 func readFLACStream(f io.ReadSeeker) ([]byte, error) {
@@ -66,7 +40,7 @@ func readFLACStream(f io.ReadSeeker) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if result[0] != 0xFF || result[1]>>2 != 0x3E {
+	if len(result) < 2 || result[0] != 0xFF || result[1]>>2 != 0x3E {
 		return nil, ErrorNoSyncCode
 	}
 	return result, nil

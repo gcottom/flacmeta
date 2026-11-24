@@ -53,47 +53,55 @@ func ParseMetaGetStreamReader(f io.ReadSeeker) (*FLACFile, error) {
 }
 
 func ParseVorbisCommentFromMetaDataBlock(meta MetaDataBlock) (*VorbisCommentBlock, error) {
-	if meta.Type != VorbisComment {
-		return nil, ErrorNotVorbisComment
-	}
-
-	reader := bytes.NewReader(meta.Data)
-	res := NewVorbisCommentBlock()
-
-	vendorlen, err := readUint32L(reader)
+	vendor, entries, err := parseVorbisEntries(meta)
 	if err != nil {
 		return nil, err
 	}
-	vendorbytes := make([]byte, vendorlen)
-	nn, err := reader.Read(vendorbytes)
-	if err != nil {
-		return nil, err
-	}
-	if nn != int(vendorlen) {
-		return nil, ErrorUnexpEof
-	}
-	res.Vendor = string(vendorbytes)
-
-	cmtcount, err := readUint32L(reader)
-	if err != nil {
-		return nil, err
-	}
-	res.Comments = make(map[string]string, 0)
-	for i := 0; i < int(cmtcount); i++ {
-		cmtlen, err := readUint32L(reader)
-		if err != nil {
-			return nil, err
-		}
-		cmtbytes := make([]byte, cmtlen)
-		nn, err := reader.Read(cmtbytes)
-		if err != nil {
-			return nil, err
-		}
-		if nn != int(cmtlen) {
-			return nil, ErrorUnexpEof
-		}
-		sp := strings.Split(string(cmtbytes), "=")
-		res.Comments[sp[0]] = strings.Join(sp[1:], "=")
+	res := &VorbisCommentBlock{Vendor: vendor, Comments: make(map[string]string, len(entries))}
+	for _, entry := range entries {
+		key, value, _ := strings.Cut(entry, "=")
+		res.Comments[key] = value
 	}
 	return res, nil
+}
+
+func parseVorbisEntries(meta MetaDataBlock) (string, []string, error) {
+	if meta.Type != VorbisComment {
+		return "", nil, ErrorNotVorbisComment
+	}
+	reader := bytes.NewBuffer(meta.Data)
+	readField := func() (string, error) {
+		n, err := readUint32L(reader)
+		if err != nil {
+			return "", err
+		}
+		if uint64(n) > uint64(reader.Len()) {
+			return "", ErrorUnexpEof
+		}
+		return string(reader.Next(int(n))), nil
+	}
+	vendor, err := readField()
+	if err != nil {
+		return "", nil, err
+	}
+	count, err := readUint32L(reader)
+	if err != nil {
+		return "", nil, err
+	}
+	if uint64(count) > uint64(reader.Len()/4) {
+		return "", nil, ErrorUnexpEof
+	}
+	entries := make([]string, 0, int(count))
+	for i := uint32(0); i < count; i++ {
+		item, err := readField()
+		if err != nil {
+			return "", nil, err
+		}
+		key, _, ok := strings.Cut(item, "=")
+		if !ok || key == "" {
+			return "", nil, ErrorMalformedComment
+		}
+		entries = append(entries, item)
+	}
+	return vendor, entries, nil
 }

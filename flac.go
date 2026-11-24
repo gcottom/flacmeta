@@ -2,14 +2,16 @@ package flacmeta
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
+	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/aler9/writerseeker"
 )
 
 type FLACTag struct {
@@ -37,7 +39,13 @@ type FLACTag struct {
 	TrackTotal   int
 	Version      string
 
-	flacFile *FLACFile
+	flacFile        *FLACFile
+	firstFrame      int64
+	commentVendor   string
+	comments        []string
+	primaryPicture  int
+	initialCoverArt *image.Image
+	coverArtEdited  bool
 }
 
 func (f *FLACTag) GetAlbum() string {
@@ -162,6 +170,7 @@ func (f *FLACTag) SetCopyright(copyright string) {
 
 func (f *FLACTag) SetCoverArt(coverArt *image.Image) {
 	f.CoverArt = coverArt
+	f.coverArtEdited = true
 }
 
 func (f *FLACTag) SetDate(date string) {
@@ -224,135 +233,207 @@ func (f *FLACTag) SetVersion(version string) {
 	f.Version = version
 }
 
+// ReadFLAC reads metadata, leaving the caller-owned source open for any subsequent Save calls.
 func ReadFLAC(r io.ReadSeeker) (*FLACTag, error) {
-	ffile, err := ParseMetaGetStreamReader(r)
+	if r == nil {
+		return nil, errors.New("flacmeta: nil source")
+	}
+	file, err := ParseMetaGetStreamReader(r)
 	if err != nil {
 		return nil, err
 	}
-	commentBlockIdx := -1
-	pictureBlockIdx := -1
-
-	for i, v := range ffile.Meta {
-		if v.Type == VorbisComment {
-			commentBlockIdx = i
-		}
-		if v.Type == Picture {
-			pictureBlockIdx = i
-		}
+	firstFrame, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, fmt.Errorf("flacmeta: record frame offset: %w", err)
 	}
-	tag := new(FLACTag)
-	if commentBlockIdx != -1 {
-		vorbisComment, err := ParseVorbisCommentFromMetaDataBlock(*ffile.Meta[commentBlockIdx])
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range vorbisComment.Comments {
-			fieldName := strings.ToUpper(k)
-			fieldName, ok := tagFieldMapping[fieldName]
-			if !ok {
+	tag := &FLACTag{flacFile: file, firstFrame: firstFrame, commentVendor: NewVorbisCommentBlock().Vendor, primaryPicture: -1}
+	fields := reflect.ValueOf(tag).Elem()
+	frontFound := false
+	var primaryPicture *MetadataBlockPicture
+	for i, block := range file.Meta {
+		switch block.Type {
+		case VorbisComment:
+			vendor, entries, err := parseVorbisEntries(*block)
+			if err != nil {
+				return nil, err
+			}
+			tag.commentVendor = vendor
+			tag.comments = append(tag.comments, entries...)
+			for _, entry := range entries {
+				key, value, _ := strings.Cut(entry, "=")
+				if name, ok := tagFieldMapping[strings.ToUpper(key)]; ok {
+					field := fields.FieldByName(name)
+					if field.Kind() == reflect.Int {
+						if n, e := strconv.Atoi(value); e == nil {
+							field.SetInt(int64(n))
+						}
+					} else {
+						field.SetString(value)
+					}
+				}
+			}
+		case Picture:
+			picture, err := ParsePicFromMetaDataBlock(*block)
+			if err != nil {
+				return nil, err
+			}
+			// A linked picture is not a decoded image, but remains in the original metadata.
+			if picture.MIME == MIMEURL {
 				continue
 			}
-			switch fieldName {
-			case structFieldBPM, structFieldDiscNumber, structFieldDiscTotal, structFieldTrackNumber, structFieldTrackTotal:
-				val, err := strconv.Atoi(v)
-				if err != nil {
-					continue
-				}
-				if val != 0 {
-					reflect.ValueOf(tag).Elem().FieldByName(fieldName).SetInt(int64(val))
-				}
-			default:
-				if v != "" {
-					reflect.ValueOf(tag).Elem().FieldByName(fieldName).SetString(v)
-				}
+			if picture.PictureType != PictureTypeFrontCover && frontFound {
+				continue
 			}
-
+			tag.primaryPicture = i
+			primaryPicture = picture
+			frontFound = picture.PictureType == PictureTypeFrontCover
 		}
 	}
-	if pictureBlockIdx != -1 {
-		picture, err := ParsePicFromMetaDataBlock(*ffile.Meta[pictureBlockIdx])
-		if err != nil {
-			return nil, err
-		}
-		img, _, err := image.Decode(bytes.NewReader(picture.ImageData))
+	if primaryPicture != nil {
+		img, _, err := image.Decode(bytes.NewReader(primaryPicture.ImageData))
 		if err != nil {
 			return nil, err
 		}
 		tag.CoverArt = &img
+		tag.initialCoverArt = tag.CoverArt
 	}
-	tag.flacFile = ffile
 	return tag, nil
 }
 
+func (f *FLACTag) currentComment(key string) string {
+	value := reflect.ValueOf(f).Elem().FieldByName(tagFieldMapping[key])
+	if value.Kind() == reflect.Int {
+		if value.Int() == 0 {
+			return ""
+		}
+		return strconv.FormatInt(value.Int(), 10)
+	}
+	return value.String()
+}
+
+func (f *FLACTag) commentBlock() (MetaDataBlock, error) {
+	effective := make(map[string]string)
+	for _, entry := range f.comments {
+		key, value, _ := strings.Cut(entry, "=")
+		key = strings.ToUpper(key)
+		if name, ok := tagFieldMapping[key]; ok {
+			if reflect.ValueOf(f).Elem().FieldByName(name).Kind() == reflect.Int {
+				if n, err := strconv.Atoi(value); err != nil {
+					continue
+				} else if n == 0 {
+					value = ""
+				} else {
+					value = strconv.Itoa(n)
+				}
+			}
+			effective[key] = value
+		}
+	}
+	entries := make([]string, 0, len(f.comments)+len(tagFieldMapping))
+	for _, entry := range f.comments {
+		key, _, _ := strings.Cut(entry, "=")
+		key = strings.ToUpper(key)
+		if _, managed := tagFieldMapping[key]; !managed || f.currentComment(key) == effective[key] {
+			entries = append(entries, entry)
+		}
+	}
+	keys := make([]string, 0, len(tagFieldMapping))
+	for key := range tagFieldMapping {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if value := f.currentComment(key); value != "" && value != effective[key] {
+			entries = append(entries, key+"="+value)
+		}
+	}
+	return marshalVorbisEntries(f.commentVendor, entries)
+}
+
+// Save writes updated metadata and streams the unchanged audio frames from the
+// original reader. The source must remain open and must not be the destination.
+// Neither stream is closed. The destination may contain partial output on error;
+// to replace a file, write to a separate temporary output and rename on success.
 func (f *FLACTag) Save(w io.Writer) error {
-	blocks := make([]*MetaDataBlock, 0)
-	comment := NewVorbisCommentBlock()
-	for k, v := range tagFieldMapping {
-		field := reflect.ValueOf(f).Elem().FieldByName(v)
-		if field.Kind() == reflect.Int {
-			comment.Comments[k] = strconv.Itoa(int(field.Int()))
-		} else {
-			comment.Comments[k] = field.String()
-		}
+	if f == nil || f.flacFile == nil || f.flacFile.StreamReader == nil {
+		return errors.New("flacmeta: Save requires a tag from ReadFLAC")
 	}
-	cb, err := comment.Marshal()
-	if err != nil {
-		return err
+	if w == nil {
+		return errors.New("flacmeta: nil destination")
 	}
-	blocks = append(blocks, &cb)
-
-	if f.CoverArt != nil {
-		pic := new(MetadataBlockPicture)
-		buf := new(bytes.Buffer)
-		err := jpeg.Encode(buf, *f.CoverArt, nil)
-		if err != nil {
-			return err
-		}
-		pic.ImageData = buf.Bytes()
-		pic.MIME = "image/jpeg"
-		pic.PictureType = PictureTypeFrontCover
-		pic.Description = "Cover Art"
-		pb, err := pic.Marshal()
-		if err != nil {
-			return err
-		}
-		blocks = append(blocks, &pb)
-	}
-
-	// remove existing vorbis comment and picture blocks
-	for {
-		found := -1
-	inner:
-		for idx, v := range f.flacFile.Meta {
-			if v.Type == Picture || v.Type == VorbisComment {
-				found = idx
-				break inner
+	source := f.flacFile.StreamReader
+	if src, ok := source.(*os.File); ok {
+		if dst, ok := w.(*os.File); ok {
+			a, err := src.Stat()
+			if err != nil {
+				return err
+			}
+			b, err := dst.Stat()
+			if err != nil {
+				return err
+			}
+			if os.SameFile(a, b) {
+				return errors.New("flacmeta: source and destination are the same file")
 			}
 		}
-		if found == -1 {
-			break
-		} else {
-			f.flacFile.Meta = append(f.flacFile.Meta[:found], f.flacFile.Meta[found+1:]...)
-		}
 	}
-
-	f.flacFile.Meta = append(f.flacFile.Meta, blocks...)
-	out, err := f.flacFile.MarshalMeta()
+	changesArt := f.coverArtEdited || f.CoverArt != f.initialCoverArt
+	var replacement *MetaDataBlock
+	if changesArt && f.CoverArt != nil {
+		if *f.CoverArt == nil {
+			return errors.New("flacmeta: nil cover image")
+		}
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, *f.CoverArt, nil); err != nil {
+			return err
+		}
+		bounds := (*f.CoverArt).Bounds()
+		picture := &MetadataBlockPicture{ImageData: buf.Bytes(), MIME: "image/jpeg", PictureType: PictureTypeFrontCover, Description: "Cover Art", Width: uint32(bounds.Dx()), Height: uint32(bounds.Dy()), ColorDepth: 24}
+		b, err := picture.Marshal()
+		if err != nil {
+			return err
+		}
+		replacement = &b
+	}
+	comment, err := f.commentBlock()
 	if err != nil {
 		return err
 	}
-	temp := new(writerseeker.WriterSeeker)
-	if _, err = temp.Write(out); err != nil {
-		return err
+	blocks := make([]*MetaDataBlock, 0, len(f.flacFile.Meta)+2)
+	wroteComment := false
+	for i, b := range f.flacFile.Meta {
+		if b.Type == VorbisComment {
+			if !wroteComment {
+				blocks = append(blocks, &comment)
+				wroteComment = true
+			}
+		} else if i == f.primaryPicture && changesArt {
+			if replacement != nil {
+				blocks = append(blocks, replacement)
+				replacement = nil
+			}
+		} else {
+			blocks = append(blocks, b)
+		}
 	}
-	if _, err = io.Copy(temp, f.flacFile.StreamReader); err != nil {
-		return err
+	if !wroteComment {
+		blocks = append(blocks, &comment)
 	}
-	if _, err = temp.Seek(0, io.SeekStart); err != nil {
-		return err
+	if replacement != nil {
+		blocks = append(blocks, replacement)
 	}
-	if _, err = io.Copy(w, temp.BytesReader()); err != nil {
-		return err
+	if _, err := source.Seek(f.firstFrame, io.SeekStart); err != nil {
+		return fmt.Errorf("flacmeta: seek to frames: %w", err)
+	}
+	if err := checkFLACStream(source); err != nil {
+		return fmt.Errorf("flacmeta: inspect frames: %w", err)
+	}
+	if err := writeMetadata(w, blocks); err != nil {
+		return fmt.Errorf("flacmeta: write metadata: %w", err)
+	}
+	// Hide optional WriteTo/ReadFrom hooks so the frame copy is bounded by our buffer.
+	if _, err := io.CopyBuffer(struct{ io.Writer }{w}, struct{ io.Reader }{source}, make([]byte, 32*1024)); err != nil {
+		return fmt.Errorf("flacmeta: copy frames: %w", err)
 	}
 	return nil
 }
