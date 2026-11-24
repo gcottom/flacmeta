@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gcottom/audiometa-core"
+	"github.com/gcottom/audiometa-core/v2"
 )
 
 // OpenMetadata reads the shared metadata model without decoding artwork or

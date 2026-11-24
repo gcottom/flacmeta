@@ -5,6 +5,9 @@ FLAC source reader and copies compressed audio frames unchanged on save. Frame
 copying uses a fixed 32 KiB buffer; memory for metadata and artwork is separate
 and depends on their size.
 
+Use `github.com/gcottom/flacmeta/v2` for v2. To upgrade a direct dependency
+from v0.0.7, update the import path and keep using the same package name.
+
 ## Read, edit, and save
 
 ```go
@@ -13,7 +16,7 @@ package main
 import (
     "os"
 
-    "github.com/gcottom/flacmeta"
+    "github.com/gcottom/flacmeta/v2"
 )
 
 func copyWithTitle(source, destination, title string) error {
@@ -76,10 +79,10 @@ covering portions of the project.
 
 ## Related libraries
 
-[AudioMeta v3](https://pkg.go.dev/github.com/gcottom/audiometa/v3) ·
-[MP3Meta](https://github.com/gcottom/mp3meta) ·
-[MP4Meta](https://github.com/gcottom/mp4meta) ·
-[OggMeta](https://github.com/gcottom/oggmeta)
+[AudioMeta v4](https://pkg.go.dev/github.com/gcottom/audiometa/v4) ·
+[MP3Meta v2](https://pkg.go.dev/github.com/gcottom/mp3meta/v2) ·
+[MP4Meta v2](https://pkg.go.dev/github.com/gcottom/mp4meta/v2) ·
+[OggMeta v2](https://pkg.go.dev/github.com/gcottom/oggmeta/v2)
 
 ## Canonical metadata editor
 
@@ -101,7 +104,7 @@ if err := tag.SetField(core.Mood, core.TextValue("Energetic")); err != nil {
 return tag.Save(out)
 ```
 
-Import `github.com/gcottom/audiometa-core` as `core` for the field and value types.
+Import `github.com/gcottom/audiometa-core/v2` as `core` for the field and value types.
 Native PICTURE and comment blocks must fit FLAC's 24-bit length. Duplicate
 comment blocks and malformed metadata lengths are rejected. Source and
 destination must be distinct files. The source remains caller-owned.
